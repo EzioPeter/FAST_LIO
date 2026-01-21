@@ -130,7 +130,9 @@ M3D Lidar_R_wrt_IMU(Eye3d);
 MeasureGroup Measures;
 esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
 state_ikfom state_point;
+state_ikfom state_point_correct; // same as state_point but with corrected z (pos(2) scaled)
 vect3 pos_lid;
+vect3 pos_lid_correct;
 
 nav_msgs::Path path;
 nav_msgs::Odometry odomAftMapped;
@@ -216,6 +218,40 @@ void RGBpointBodyLidarToIMU(PointType const * const pi, PointType * const po)
     po->x = p_body_imu(0);
     po->y = p_body_imu(1);
     po->z = p_body_imu(2);
+    po->intensity = pi->intensity;
+}
+
+// Published-point-cloud variants using corrected state (state_point_correct)
+void pointBodyToWorld_pub(PointType const * const pi, PointType * const po)
+{
+    V3D p_body(pi->x, pi->y, pi->z);
+    V3D p_global(state_point_correct.rot * (state_point_correct.offset_R_L_I*p_body + state_point_correct.offset_T_L_I) + state_point_correct.pos);
+
+    po->x = p_global(0);
+    po->y = p_global(1);
+    po->z = p_global(2);
+    po->intensity = pi->intensity;
+}
+
+template<typename T>
+void pointBodyToWorld_pub(const Matrix<T, 3, 1> &pi, Matrix<T, 3, 1> &po)
+{
+    V3D p_body(pi[0], pi[1], pi[2]);
+    V3D p_global(state_point_correct.rot * (state_point_correct.offset_R_L_I*p_body + state_point_correct.offset_T_L_I) + state_point_correct.pos);
+
+    po[0] = p_global(0);
+    po[1] = p_global(1);
+    po[2] = p_global(2);
+}
+
+void RGBpointBodyToWorld_pub(PointType const * const pi, PointType * const po)
+{
+    V3D p_body(pi->x, pi->y, pi->z);
+    V3D p_global(state_point_correct.rot * (state_point_correct.offset_R_L_I*p_body + state_point_correct.offset_T_L_I) + state_point_correct.pos);
+
+    po->x = p_global(0);
+    po->y = p_global(1);
+    po->z = p_global(2);
     po->intensity = pi->intensity;
 }
 
@@ -486,8 +522,8 @@ void publish_frame_world(const ros::Publisher & pubLaserCloudFull)
 
         for (int i = 0; i < size; i++)
         {
-            RGBpointBodyToWorld(&laserCloudFullRes->points[i], \
-                                &laserCloudWorld->points[i]);
+            RGBpointBodyToWorld_pub(&laserCloudFullRes->points[i], \
+                                    &laserCloudWorld->points[i]);
         }
 
         sensor_msgs::PointCloud2 laserCloudmsg;
@@ -509,8 +545,8 @@ void publish_frame_world(const ros::Publisher & pubLaserCloudFull)
 
         for (int i = 0; i < size; i++)
         {
-            RGBpointBodyToWorld(&feats_undistort->points[i], \
-                                &laserCloudWorld->points[i]);
+            RGBpointBodyToWorld_pub(&feats_undistort->points[i], \
+                                    &laserCloudWorld->points[i]);
         }
         *pcl_wait_save += *laserCloudWorld;
 
@@ -554,8 +590,8 @@ void publish_effect_world(const ros::Publisher & pubLaserCloudEffect)
                     new PointCloudXYZI(effct_feat_num, 1));
     for (int i = 0; i < effct_feat_num; i++)
     {
-        RGBpointBodyToWorld(&laserCloudOri->points[i], \
-                            &laserCloudWorld->points[i]);
+        RGBpointBodyToWorld_pub(&laserCloudOri->points[i], \
+                                &laserCloudWorld->points[i]);
     }
     sensor_msgs::PointCloud2 laserCloudFullRes3;
     pcl::toROSMsg(*laserCloudWorld, laserCloudFullRes3);
@@ -576,9 +612,9 @@ void publish_map(const ros::Publisher & pubLaserCloudMap)
 template<typename T>
 void set_posestamp(T & out)
 {
-    out.pose.position.x = state_point.pos(0);
-    out.pose.position.y = state_point.pos(1);
-    out.pose.position.z = state_point.pos(2);
+    out.pose.position.x = state_point_correct.pos(0);
+    out.pose.position.y = state_point_correct.pos(1);
+    out.pose.position.z = state_point_correct.pos(2);
     out.pose.orientation.x = geoQuat.x;
     out.pose.orientation.y = geoQuat.y;
     out.pose.orientation.z = geoQuat.z;
@@ -889,6 +925,11 @@ int main(int argc, char** argv)
             state_point = kf.get_x();
             pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
 
+            // create corrected copy for published point-clouds (only z scaled)
+            state_point_correct = state_point;
+            state_point_correct.pos(2) = 0.1 * state_point.pos(2);
+            pos_lid_correct = state_point_correct.pos + state_point_correct.rot * state_point_correct.offset_T_L_I;
+
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
                 ROS_WARN("No point, skip this scan!\n");
@@ -961,6 +1002,11 @@ int main(int argc, char** argv)
             state_point = kf.get_x();
             euler_cur = SO3ToEuler(state_point.rot);
             pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
+
+            // keep a corrected copy for published point-cloud transforms
+            state_point_correct = state_point;
+            state_point_correct.pos(2) = 0.1 * state_point.pos(2);
+            pos_lid_correct = state_point_correct.pos + state_point_correct.rot * state_point_correct.offset_T_L_I;
             geoQuat.x = state_point.rot.coeffs()[0];
             geoQuat.y = state_point.rot.coeffs()[1];
             geoQuat.z = state_point.rot.coeffs()[2];
