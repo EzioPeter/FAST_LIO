@@ -88,6 +88,7 @@ double res_mean_last = 0.05, total_residual = 0.0;
 double last_timestamp_lidar = 0, last_timestamp_imu = -1.0;
 double gyr_cov = 0.1, acc_cov = 0.1, b_gyr_cov = 0.0001, b_acc_cov = 0.0001;
 double filter_size_corner_min = 0, filter_size_surf_min = 0, filter_size_map_min = 0, fov_deg = 0;
+double z_weight = 0.05;
 double cube_len = 0, HALF_FOV_COS = 0, FOV_DEG = 0, total_distance = 0, lidar_end_time = 0, first_lidar_time = 0.0;
 int    effct_feat_num = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
 int    iterCount = 0, feats_down_size = 0, NUM_MAX_ITERATIONS = 0, laserCloudValidNum = 0, pcd_save_interval = -1, pcd_index = 0;
@@ -807,6 +808,7 @@ int main(int argc, char** argv)
     nh.param<double>("filter_size_corner",filter_size_corner_min,0.5);
     nh.param<double>("filter_size_surf",filter_size_surf_min,0.5);
     nh.param<double>("filter_size_map",filter_size_map_min,0.5);
+    nh.param<double>("z_weight",z_weight,0.05);
     nh.param<double>("cube_side_length",cube_len,200);
     nh.param<float>("mapping/det_range",DET_RANGE,300.f);
     nh.param<double>("mapping/fov_degree",fov_deg,180);
@@ -927,7 +929,7 @@ int main(int argc, char** argv)
 
             // create corrected copy for published point-clouds (only z scaled)
             state_point_correct = state_point;
-            state_point_correct.pos(2) = 0.1 * state_point.pos(2);
+            state_point_correct.pos(2) = z_weight * state_point.pos(2);
             pos_lid_correct = state_point_correct.pos + state_point_correct.rot * state_point_correct.offset_T_L_I;
 
             if (feats_undistort->empty() || (feats_undistort == NULL))
@@ -1005,7 +1007,7 @@ int main(int argc, char** argv)
 
             // keep a corrected copy for published point-cloud transforms
             state_point_correct = state_point;
-            state_point_correct.pos(2) = 0.1 * state_point.pos(2);
+            state_point_correct.pos(2) = z_weight * state_point.pos(2);
             pos_lid_correct = state_point_correct.pos + state_point_correct.rot * state_point_correct.offset_T_L_I;
             geoQuat.x = state_point.rot.coeffs()[0];
             geoQuat.y = state_point.rot.coeffs()[1];
